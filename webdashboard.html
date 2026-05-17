@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Measure Translational Speed - Nhóm 30</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root {
+            --primary-glow: #00f3ff;
+            --secondary-glow: #7000ff;
+            --bg-color: #0d1117;
+            --glass-bg: rgba(22, 27, 34, 0.8);
+            --border-color: rgba(48, 54, 61, 0.8);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(0, 243, 255, 0.05) 0%, transparent 20%),
+                radial-gradient(circle at 90% 80%, rgba(112, 0, 255, 0.05) 0%, transparent 20%);
+            color: #c9d1d9;
+            font-family: 'Space Grotesk', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Navbar & Header */
+        .navbar {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 15px 0;
+        }
+
+        .nav-title {
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: var(--primary-glow) !important;
+            text-transform: uppercase;
+        }
+
+        /* Status Indicator */
+        .status-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            border: 1px solid currentColor;
+        }
+
+        .online {
+            color: #39ff14;
+            box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
+        }
+
+        .offline {
+            color: #ff3131;
+            box-shadow: 0 0 10px rgba(255, 49, 49, 0.3);
+        }
+
+        /* Dashboard Cards */
+        .data-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 25px;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            overflow: hidden;
+        }
+
+        .data-card:hover {
+            border-color: var(--primary-glow);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .card-icon {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 1.5rem;
+            opacity: 0.3;
+            color: var(--primary-glow);
+        }
+
+        .data-label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            color: #8b949e;
+            letter-spacing: 1px;
+        }
+
+        .data-value {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin: 10px 0;
+            background: linear-gradient(to right, #fff, var(--primary-glow));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Chart Section */
+        .chart-section {
+            background: var(--glass-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+
+        .footer-info {
+            text-align: center;
+            padding: 40px;
+            color: #484f58;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav class="navbar sticky-top">
+        <div class="container d-flex justify-content-between align-items-center">
+            <a class="navbar-brand nav-title" href="#">
+                <i class="fas fa-microchip me-2"></i> MCU ATMEGA 16
+            </a>
+            <div id="mqtt-status" class="status-badge offline">
+                <i class="fas fa-circle me-1"></i> DISCONNECTED
+            </div>
+        </div>
+    </nav>
+
+    <div class="container py-5">
+        <div class="row g-4">
+            <div class="col-md-6 col-lg-4">
+                <div class="data-card">
+                    <i class="fas fa-tachometer-alt card-icon"></i>
+                    <div class="data-label">Vận tốc hiện tại</div>
+                    <div id="speed-val" class="data-value">0.00</div>
+                    <div class="text-muted">Đơn vị: m/s</div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-4">
+                <div class="data-card">
+                    <i class="fas fa-ruler-combined card-icon"></i>
+                    <div class="data-label">Chiều dài vật thể</div>
+                    <div id="length-val" class="data-value">0.00</div>
+                    <div class="text-muted">Đơn vị: cm</div>
+                </div>
+            </div>
+
+            <div class="col-md-12 col-lg-4">
+                <div class="data-card" style="height: 100%;">
+                    <i class="fas fa-terminal card-icon"></i>
+                    <div class="data-label">Nhật ký hệ thống</div>
+                    <div id="log-list" class="mt-3"
+                        style="font-size: 0.8rem; max-height: 120px; overflow-y: auto; font-family: monospace;">
+                        <div>[SYS] Chờ dữ liệu từ HiveMQ...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="chart-section">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                <h5 class="m-0"><i class="fas fa-chart-line me-2 text-info"></i> BIỂU ĐỒ ĐA BIẾN THỜI GIAN THỰC</h5>
+                <button class="btn btn-sm btn-outline-info" onclick="resetChart()">Xóa dữ liệu</button>
+            </div>
+        <canvas id="monitorChart" height="100"></canvas>
+    </div>
+</div>
+        </div>
+
+        <div class="footer-info">
+            &copy; 2026 Nhóm 30 - Trường ĐH Công Nghệ | SV thực hiện: Nguyễn Văn Phú & Đào Mạnh Ngọc
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            host: "7e8ba07b3f8447cba1c63d74d4fdd9f6.s1.eu.hivemq.cloud",
+            port: 8884,
+            user: "phubeo22",
+            pass: "Phudeptrai1@",
+            topic: "factory/monitor/data"
+        };
+
+        // --- MQTT CLIENT LOGIC ---
+        let client = new Paho.MQTT.Client(CONFIG.host, CONFIG.port, "web_ui_" + Math.floor(Math.random() * 1000));
+
+        client.onConnectionLost = (response) => {
+            updateStatus(false);
+            addLog("[ERR] Mất kết nối server!");
+        };
+
+        client.onMessageArrived = (message) => {
+            try {
+                let data = JSON.parse(message.payloadString);
+
+                // Cập nhật giá trị số
+                animateValue("speed-val", data.speed);
+                animateValue("length-val", data.length);
+
+                // Cập nhật biểu đồ (2 đường)
+                updateChartData(data.speed, data.length);
+
+                addLog(`[RX] V: ${data.speed} m/s | L: ${data.length} cm`);
+            } catch (e) {
+                addLog("[ERR] Sai định dạng JSON!");
+            }
+        };
+
+        function connect() {
+            client.connect({
+                useSSL: true,
+                userName: CONFIG.user,
+                password: CONFIG.pass,
+                onSuccess: () => {
+                    updateStatus(true);
+                    client.subscribe(CONFIG.topic);
+                    addLog("[SYS] Kết nối Cloud thành công.");
+                },
+                onFailure: (e) => {
+                    addLog("[ERR] Kết nối thất bại: " + e.errorMessage);
+                }
+            });
+        }
+
+        // --- HELPER FUNCTIONS ---
+        function updateStatus(isOnline) {
+            const el = document.getElementById("mqtt-status");
+            el.className = isOnline ? "status-badge online" : "status-badge offline";
+            el.innerHTML = isOnline ? '<i class="fas fa-check-circle me-1"></i> CLOUD ONLINE' : '<i class="fas fa-times-circle me-1"></i> DISCONNECTED';
+        }
+
+        function addLog(msg) {
+            const list = document.getElementById("log-list");
+            const time = new Date().toLocaleTimeString();
+            list.innerHTML = `<div><span class="text-info">[${time}]</span> ${msg}</div>` + list.innerHTML;
+        }
+
+        function animateValue(id, value) {
+            document.getElementById(id).innerText = value.toFixed(2);
+        }
+
+        // --- BẢN NÂNG CẤP CHART.JS (TRỤC KÉP) ---
+        const ctx = document.getElementById('monitorChart').getContext('2d');
+        let chartData = { labels: [], speedData: [], lengthData: [] };
+
+        let monitorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.labels,
+                datasets: [
+                    {
+                        label: 'Vận tốc (m/s)',
+                        data: chartData.speedData,
+                        borderColor: '#00f3ff', // Xanh Neon
+                        backgroundColor: 'rgba(0, 243, 255, 0.1)',
+                        borderWidth: 3,
+                        yAxisID: 'ySpeed', // Gắn vào trục trái
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Chiều dài (cm)',
+                        data: chartData.lengthData,
+                        borderColor: '#b026ff', // Tím Neon
+                        backgroundColor: 'rgba(176, 38, 255, 0.1)',
+                        borderWidth: 3,
+                        yAxisID: 'yLength', // Gắn vào trục phải
+                        tension: 0.4,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: { 
+                    legend: { 
+                        display: true, 
+                        labels: { color: '#c9d1d9', font: { family: 'Space Grotesk' } } 
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(22, 27, 34, 0.9)',
+                        titleColor: '#00f3ff',
+                        bodyColor: '#fff',
+                        borderColor: '#30363d',
+                        borderWidth: 1
+                    }
+                },
+                scales: {
+                    x: { 
+                        grid: { color: 'rgba(48, 54, 61, 0.5)' }, 
+                        ticks: { color: '#8b949e' } 
+                    },
+                    ySpeed: { 
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Vận tốc (m/s)', color: '#00f3ff' },
+                        grid: { color: 'rgba(48, 54, 61, 0.5)' }, 
+                        ticks: { color: '#00f3ff' } 
+                    },
+                    yLength: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Chiều dài (cm)', color: '#b026ff' },
+                        grid: { drawOnChartArea: false }, 
+                        ticks: { color: '#b026ff' }
+                    }
+                }
+            }
+        });
+
+        function updateChartData(speedVal, lengthVal) {
+            const maxPoints = 20; 
+            if (monitorChart.data.labels.length >= maxPoints) {
+                monitorChart.data.labels.shift();
+                monitorChart.data.datasets[0].data.shift(); 
+                monitorChart.data.datasets[1].data.shift(); 
+            }
+            monitorChart.data.labels.push(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            monitorChart.data.datasets[0].data.push(speedVal);
+            monitorChart.data.datasets[1].data.push(lengthVal);
+            monitorChart.update();
+        }
+
+        function resetChart() {
+            monitorChart.data.labels = [];
+            monitorChart.data.datasets[0].data = [];
+            monitorChart.data.datasets[1].data = [];
+            monitorChart.update();
+            addLog("[SYS] Đã reset biểu đồ.");
+        }
+
+        // Khởi động
+        window.onload = connect;
+    </script>
+
+</body>
+
+</html>
